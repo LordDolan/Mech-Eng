@@ -1,2 +1,2 @@
 # Mech-Eng
-Repositório com códigos desenvolvidos ao longo da graduação em Engenharia Mecânica :)
+Just a simple repository for storing my mechanical engineering codes.
