@@ -19,3 +19,22 @@ Simula o escoamento de água quente em um tubo, representando o comportamento da
 ```bash
 g++ -std=c++17 -DWITHOUT_NUMPY -I. -I/usr/include/python3.12 Projeto_Transcal.cpp -o transcal -lpython3.12
 ```
+
+---
+
+## PM1_Engrenagens_AGMA.py
+
+Dimensiona engrenagens cilíndricas de dentes retos ou helicoidais pelo método AGMA (Shigley, cap. 14), verificando falha por flexão e por desgaste (contato).
+
+**Métodos aplicados:** correlações AGMA de tensão e resistência, fator de Lewis interpolado (Tabela 14-2), cálculo iterativo da largura de face mínima e verificação de interferência (cap. 13).
+
+**Entrada:** 4 perguntas — tipo de dente (reto/helicoidal), número de dentes do pinhão, material (menu com aços graus 1 e 2 ou St/Sc personalizados) e largura de face. Os demais parâmetros (potência, rotações, módulo, FS...) são padrões editáveis no topo do código.
+
+**Saída:** resumo no terminal com tensões e fatores de segurança AGMA (veredito passa/não passa), tabela gráfica dos fatores com a localização de cada um no Shigley, e mapa 2D "nº de dentes × largura de face" com as regiões passa (verde) e não passa (vermelho).
+
+**Execução** (requer matplotlib):
+
+```bash
+pip install matplotlib
+python3 PM1_Engrenagens_AGMA.py
+```
