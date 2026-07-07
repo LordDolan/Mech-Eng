@@ -1,6 +1,6 @@
 # Mech-Eng
 
-Repositório com códigos desenvolvidos ao longo da graduação em Engenharia Mecânica :)
+Repositório com alguns códigos úteis desenvolvidos ao longo da graduação em Engenharia Mecânica :)
 
 ---
 
