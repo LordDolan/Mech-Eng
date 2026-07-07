@@ -1,4 +1,5 @@
 import math
+import matplotlib.pyplot as plt
 
 # =============================================================================
 # PROJETO DE MÁQUINAS 1 - DIMENSIONAMENTO DE ENGRENAGENS CILÍNDRICAS (AGMA)
@@ -6,18 +7,80 @@ import math
 # Aluno: João Vicente Rosal Giovannetti Daros
 # Referência: Shigley - Projeto de Engenharia Mecânica (Caps. 13 e 14, SI)
 # Unidades: mm, kW, rpm, MPa
+#
+# O programa pergunta apenas: tipo de dente, número de dentes do pinhão,
+# material e largura de face. Os demais parâmetros são os PADRÕES abaixo
+# (edite esta seção para mudar o problema).
+# Saídas: resumo no terminal + tabela gráfica dos fatores (com a localização
+# de cada um no Shigley) + mapa 2D "número de dentes x largura de face"
+# mostrando as regiões PASSA (verde) / NÃO PASSA (vermelho).
 # =============================================================================
-# Pressione Enter em qualquer pergunta para aceitar o valor padrão [entre colchetes].
 
+# ---------------------- PARÂMETROS PADRÃO DO PROBLEMA -----------------------
+PADROES = {
+    "reto": dict(
+        H_motor=0.339,     # Potência do motor (kW)
+        n_motor=11.0,      # Rotação do motor (rpm)
+        n_acionado=2.2,    # Rotação do eixo acionado (rpm)
+        K_o=1.0,           # Fator de sobrecarga (Seção 14-8)
+        FS=1.0,            # Fator de segurança mínimo do projeto
+        Q_v=7,             # Número de qualidade (Seção 14-7)
+        phi_n=20.0,        # Ângulo de pressão normal (graus)
+        psi=0.0,           # Ângulo de hélice (graus) - 0 para dentes retos
+        m_n=3.0,           # Módulo normal (mm)
+        ciclos_p=1e9,      # Vida útil do pinhão (ciclos)
+        R=0.95,            # Confiabilidade
+        Yj_p=0.33,         # Fator geométrico J do pinhão (Fig. 14-6)
+        Yj_g=0.42,         # Fator geométrico J da engrenagem (Fig. 14-6)
+        N_p_padrao=20,
+    ),
+    "helicoidal": dict(
+        H_motor=9.0,
+        n_motor=1000.0,
+        n_acionado=500.0,
+        K_o=1.25,
+        FS=2.0,
+        Q_v=7,
+        phi_n=20.0,
+        psi=30.0,
+        m_n=2.5,
+        ciclos_p=1e8,
+        R=0.95,
+        Yj_p=0.41,         # (Figs. 14-7 e 14-8)
+        Yj_g=0.444,
+        N_p_padrao=14,
+    ),
+}
 
-def pede_float(msg, padrao):
-    txt = input(f"{msg} [{padrao}]: ").strip().replace(",", ".")
-    return float(txt) if txt else padrao
+# Fatores fixos (hipóteses usuais do curso)
+K_b = 1     # Fator de espessura de borda (Seção 14-16, Fig. 14-16), mB >= 1,2
+K_t = 1     # Fator de temperatura (Seção 14-15), T_oleo < 120 C
+C_f = 1     # Fator de condição de superfície (Seção 14-9)
+C_h = 1     # Fator de razão de dureza (Seção 14-12, Eq. 14-36)
+C_p = 191   # Coeficiente elástico aço-aço, raiz(MPa) (Eq. 14-13, Tabela 14-8)
+
+# Materiais disponíveis: (nome, grau AGMA, dureza HB)
+# St pela Fig. 14-2 e Sc pela Fig. 14-5 (aços endurecidos por completo, MPa)
+MATERIAIS = {
+    1: ("Aço grau 1 - HB 300", 1, 300.0),
+    2: ("Aço grau 2 - HB 350", 2, 350.0),
+    3: ("Aço grau 2 - HB 397", 2, 397.0),
+}
+
+# Cores de status do mapa passa/não passa
+COR_PASSA = "#2E7D32"
+COR_FALHA = "#C62828"
+COR_LINHA = "#37474F"
 
 
 def pede_int(msg, padrao):
     txt = input(f"{msg} [{padrao}]: ").strip()
     return int(txt) if txt else padrao
+
+
+def pede_float(msg, padrao):
+    txt = input(f"{msg} [{padrao}]: ").strip().replace(",", ".")
+    return float(txt) if txt else padrao
 
 
 # Tabela 14-2 (Shigley) - Fator de forma de Lewis Y (interpolação linear)
@@ -45,25 +108,25 @@ def fator_tamanho(b, m_t, Y):
 
 
 def fator_distribuicao(b, d_p):
-    """Kh - Fator de distribuição de carga (Eqs. 14-30 a 14-35).
+    """Kh - Fator de distribuição de carga (Seção 14-11, Eqs. 14-30 a 14-35).
     Hipóteses: dentes não coroados, montagem entre mancais,
     unidade fechada comercial, condições normais de montagem."""
-    C_mc = 1                                    # Eq. 14-31: dentes não coroados
+    C_mc = 1
     razao = b / (10 * d_p)
     if razao < 0.05:
         razao = 0.05
     if b <= 25:
-        C_pf = razao - 0.025                    # Eq. 14-32 (b <= 25 mm)
+        C_pf = razao - 0.025
     else:
-        C_pf = razao - 0.0375 + 4.92e-4 * b     # Eq. 14-32 (25 < b <= 425 mm)
-    C_pm = 1                                    # Eq. 14-33: montagem entre mancais
-    C_ma = 0.127 + 0.622e-3 * b - 1.69e-7 * b**2  # Eq. 14-34: unidade fechada comercial
-    C_e = 1                                     # Eq. 14-35: montagem normal
+        C_pf = razao - 0.0375 + 4.92e-4 * b
+    C_pm = 1
+    C_ma = 0.127 + 0.622e-3 * b - 1.69e-7 * b**2
+    C_e = 1
     return 1 + C_mc * (C_pf * C_pm + C_ma * C_e)
 
 
 # =============================================================================
-# SELEÇÃO DO TIPO DE ENGRENAGEM
+# ENTRADAS DO USUÁRIO (apenas 4 perguntas)
 # =============================================================================
 print("=" * 70)
 print(" DIMENSIONAMENTO DE ENGRENAGENS - MÉTODO AGMA (Shigley)")
@@ -72,241 +135,287 @@ tipo = ""
 while tipo not in ("1", "2"):
     tipo = input("Tipo de engrenagem (1 = dentes retos, 2 = helicoidal): ").strip()
 helicoidal = (tipo == "2")
+cfg = PADROES["helicoidal" if helicoidal else "reto"]
+
+H_motor = cfg["H_motor"]
+n_motor = cfg["n_motor"]
+n_acionado = cfg["n_acionado"]
+K_o = cfg["K_o"]
+FS = cfg["FS"]
+Q_v = cfg["Q_v"]
+phi_n = cfg["phi_n"]
+psi = cfg["psi"]
+m_n = cfg["m_n"]
+ciclos_p = cfg["ciclos_p"]
+R = cfg["R"]
+Yj_p = cfg["Yj_p"]
+Yj_g = cfg["Yj_g"]
+
+N_p = pede_int("Número de dentes do pinhão", cfg["N_p_padrao"])
+
+print("Materiais disponíveis:")
+for i, (nome, _, _) in MATERIAIS.items():
+    print(f"  {i} = {nome}")
+print("  4 = Personalizado (digitar St e Sc)")
+escolha_mat = pede_int("Material", 2)
+if escolha_mat == 4:
+    nome_mat = "Personalizado"
+    S_t = pede_float("Tensão de flexão admissível St (MPa)", 359.0)
+    Sc = pede_float("Resistência ao contato admissível Sc (MPa)", 1080.5)
+else:
+    nome_mat, grau, HB = MATERIAIS[escolha_mat]
+    if grau == 2:
+        S_t = 0.703 * HB + 113        # Fig. 14-2, grau 2
+        Sc = 2.41 * HB + 237          # Fig. 14-5, grau 2
+    else:
+        S_t = 0.533 * HB + 88.3       # Fig. 14-2, grau 1
+        Sc = 2.22 * HB + 200          # Fig. 14-5, grau 1
 
 # =============================================================================
-# DADOS DE ENTRADA (padrões = exemplos usados em aula para cada tipo)
+# FATORES INDEPENDENTES DA GEOMETRIA (calculados uma única vez)
 # =============================================================================
-print("\n--- Dados de entrada ---")
-H_motor = pede_float("Potência do motor (kW)", 9.0 if helicoidal else 0.339)
-n_motor = pede_float("Rotação do motor (rpm)", 1000.0 if helicoidal else 11.0)
-n_acionado = pede_float("Rotação do eixo acionado (rpm)", 500.0 if helicoidal else 2.2)
 reducao = n_motor / n_acionado
-
-R = pede_float("Confiabilidade", 0.95)
-ciclos_p = pede_float("Vida útil do pinhão (ciclos)", 1e8 if helicoidal else 1e9)
 ciclos_g = ciclos_p / reducao
 
-K_o = pede_float("Fator de sobrecarga Ko (Tabela em aula / Shigley)", 1.25 if helicoidal else 1.0)
-FS = pede_float("Fator de segurança mínimo do projeto", 2.0 if helicoidal else 1.0)
-Q_v = pede_int("Número de qualidade Qv", 7)
+K_r = 0.658 - 0.0759 * math.log(1 - R)          # Eq. 14-38 (Seção 14-14)
+Yn_p = 1.3558 * ciclos_p**-0.0178               # Fig. 14-14 (Seção 14-13)
+Yn_g = 1.3558 * ciclos_g**-0.0178
+Zn_p = 1.4488 * ciclos_p**-0.023                # Fig. 14-15 (Seção 14-13)
+Zn_g = 1.4488 * ciclos_g**-0.023
 
-print("\n--- Decisões de projeto ---")
-phi_n = pede_float("Ângulo de pressão normal (graus)", 20.0)
-psi = pede_float("Ângulo de hélice (graus)", 30.0) if helicoidal else 0.0
-N_p = pede_int("Número de dentes do pinhão", 14 if helicoidal else 20)
-m_n = pede_float("Módulo normal (mm)", 2.5 if helicoidal else 3.0)
 
-print("\n--- Material ---")
-H_brinell = pede_float("Dureza do núcleo (HB)", 397.0 if helicoidal else 350.0)
-grau = pede_int("Grau do material AGMA (1 ou 2)", 2)
-# Figs. 14-2 e 14-5 (aços endurecidos por completo, em MPa)
-if grau == 2:
-    S_t_padrao = 0.703 * H_brinell + 113
-    S_c_padrao = 2.41 * H_brinell + 237
-else:
-    S_t_padrao = 0.533 * H_brinell + 88.3
-    S_c_padrao = 2.22 * H_brinell + 200
-S_t = pede_float("Tensão de flexão admissível St (MPa) (Fig. 14-2 ou Tabela 14-3/14-4)",
-                 round(S_t_padrao, 1))
-Sc = pede_float("Resistência ao contato admissível Sc (MPa) (Fig. 14-5 ou Tabela 14-6)",
-                round(S_c_padrao, 1))
-C_p = pede_float("Coeficiente elástico Cp (raiz(MPa)) (Tabela 14-8, aço-aço = 191)", 191.0)
+def prepara(N):
+    """Geometria, carregamento e fatores que dependem do nº de dentes N."""
+    g = {"N_p": N}
+    if helicoidal:
+        g["phi_t"] = math.degrees(math.atan(math.tan(math.radians(phi_n)) / math.cos(math.radians(psi))))
+        g["m_t"] = m_n / math.cos(math.radians(psi))
+        g["p_x"] = math.pi * m_n / math.sin(math.radians(psi))
+    else:
+        g["phi_t"] = phi_n
+        g["m_t"] = m_n
+        g["p_x"] = None
+    g["N_g"] = max(round(N * reducao), N + 1) if reducao > 1 else round(N * reducao)
+    g["m_g"] = g["N_g"] / N
+    g["d_p"] = g["m_t"] * N
+    g["d_g"] = g["m_t"] * g["N_g"]
+    g["Y_p"] = lewis_Y(N)
+    g["Y_g"] = lewis_Y(g["N_g"])
+
+    # Nº mínimo de dentes do pinhão contra interferência (Eq. 13-11 / Eq. 13-22)
+    k = 1
+    sin2 = math.sin(math.radians(g["phi_t"])) ** 2
+    fh = math.cos(math.radians(psi)) if helicoidal else 1.0
+    mg = g["m_g"]
+    g["N_p_min"] = 2 * k * fh * (mg + math.sqrt(mg**2 + (1 + 2 * mg) * sin2)) / ((1 + 2 * mg) * sin2)
+
+    # Carregamento e fator dinâmico (Seção 14-7)
+    g["V"] = math.pi * g["d_p"] * n_motor / 60000
+    g["W_t"] = 1000 * H_motor / g["V"]
+    B = 0.25 * (12 - Q_v) ** (2 / 3)
+    A = 50 + 56 * (1 - B)
+    g["K_v"] = ((A + math.sqrt(200 * g["V"])) / A) ** B      # Eq. 14-27
+    g["V_max"] = (A + (Q_v - 3)) ** 2 / 200                  # Eq. 14-29
+
+    # Fator geométrico de contato I (Seção 14-5, Eqs. 14-21 a 14-25)
+    if helicoidal:
+        rb_p = (g["d_p"] / 2) * math.cos(math.radians(g["phi_t"]))
+        rb_g = (g["d_g"] / 2) * math.cos(math.radians(g["phi_t"]))
+        a = m_n
+        Z = (math.sqrt((g["d_p"] / 2 + a)**2 - rb_p**2) + math.sqrt((g["d_g"] / 2 + a)**2 - rb_g**2)
+             - (g["d_p"] / 2 + g["d_g"] / 2) * math.sin(math.radians(g["phi_t"])))
+        P_N = math.pi * m_n * math.cos(math.radians(phi_n))
+        m_N = P_N / (0.95 * Z)
+    else:
+        m_N = 1
+    g["m_N"] = m_N
+    g["Z_I"] = (math.cos(math.radians(g["phi_t"])) * math.sin(math.radians(g["phi_t"])) / (2 * m_N)) * mg / (mg + 1)
+    return g
+
+
+def b_requerido(g):
+    """Largura de face requerida por flexão e desgaste (iterativa: Ks e Kh dependem de b)."""
+    b = 30.0
+    for _ in range(100):
+        Ks_p = fator_tamanho(b, g["m_t"], g["Y_p"])
+        K_h = fator_distribuicao(b, g["d_p"])
+        b_flex = FS * g["W_t"] * K_o * g["K_v"] * Ks_p * (1 / g["m_t"]) * (K_h * K_b / Yj_p) * (K_t * K_r) / (S_t * Yn_p)
+        b_desg = ((C_p * K_t * K_r / (Sc * Zn_p * C_h)) ** 2) * FS * g["W_t"] * K_o * g["K_v"] * Ks_p * (K_h / g["d_p"]) * (C_f / g["Z_I"])
+        b_novo = max(b_flex, b_desg)
+        if abs(b_novo - b) < 1e-4:
+            break
+        b = b_novo
+    return b_flex, b_desg, max(b_flex, b_desg)
+
+
+def tensoes(g, b):
+    """Tensões e fatores de segurança AGMA com a largura de face b."""
+    r = {}
+    r["Ks_p"] = fator_tamanho(b, g["m_t"], g["Y_p"])
+    r["Ks_g"] = fator_tamanho(b, g["m_t"], g["Y_g"])
+    r["K_h"] = fator_distribuicao(b, g["d_p"])
+    comum = g["W_t"] * K_o * g["K_v"]
+    r["Tflex_p"] = comum * r["Ks_p"] * (1 / (b * g["m_t"])) * (r["K_h"] * K_b / Yj_p)     # Eq. 14-15
+    r["Tflex_g"] = comum * r["Ks_g"] * (1 / (b * g["m_t"])) * (r["K_h"] * K_b / Yj_g)
+    r["Tcont_p"] = C_p * math.sqrt(comum * r["Ks_p"] * (r["K_h"] / (g["d_p"] * b)) * (C_f / g["Z_I"]))  # Eq. 14-16
+    r["Tcont_g"] = C_p * math.sqrt(comum * r["Ks_g"] * (r["K_h"] / (g["d_p"] * b)) * (C_f / g["Z_I"]))
+    r["SF_p"] = (S_t * Yn_p) / (K_t * K_r * r["Tflex_p"])       # Eq. 14-41
+    r["SF_g"] = (S_t * Yn_g) / (K_t * K_r * r["Tflex_g"])
+    r["SH_p"] = (Sc * Zn_p * C_h) / (K_t * K_r * r["Tcont_p"])  # Eq. 14-42
+    r["SH_g"] = (Sc * Zn_g * C_h) / (K_t * K_r * r["Tcont_g"])
+    return r
+
 
 # =============================================================================
-# GEOMETRIA (Cap. 13)
+# CÁLCULO DO CASO DO USUÁRIO
 # =============================================================================
+g = prepara(N_p)
+b_flex, b_desg, b_req = b_requerido(g)
+
 if helicoidal:
-    phi_t = math.degrees(math.atan(math.tan(math.radians(phi_n)) / math.cos(math.radians(psi))))
-    m_t = m_n / math.cos(math.radians(psi))     # módulo transversal
-    p_x = math.pi * m_n / math.sin(math.radians(psi))  # passo axial
+    b_min_rec = 2 * g["p_x"]
+    b_max_rec = None
+    intervalo_txt = f"b >= {b_min_rec:.1f} mm (2 passos axiais)"
 else:
-    phi_t = phi_n
-    m_t = m_n
-    p_x = None
+    b_min_rec = 3 * math.pi * g["m_t"]
+    b_max_rec = 5 * math.pi * g["m_t"]
+    intervalo_txt = f"{b_min_rec:.1f} a {b_max_rec:.1f} mm (3*pi*m a 5*pi*m)"
 
-N_g_exato = N_p * reducao
-N_g = round(N_g_exato)
-if abs(N_g - N_g_exato) > 1e-6:
-    print(f"\nAVISO: N_g = {N_g_exato:.2f} não é inteiro; arredondado para {N_g} "
-          f"(relação de transmissão real = {N_g / N_p:.4f}).")
-m_g = N_g / N_p
+print(f"\nLargura de face requerida: {b_req:.2f} mm "
+      f"(flexão: {b_flex:.2f} mm | desgaste: {b_desg:.2f} mm)")
+print(f"Intervalo recomendado: {intervalo_txt}")
+b_sugerido = float(math.ceil(max(b_req, b_min_rec)))
+b = pede_float("Largura de face adotada (mm)", b_sugerido)
 
-d_p = m_t * N_p
-d_g = m_t * N_g
+r = tensoes(g, b)
+passa = (r["SF_p"] >= FS and r["SF_g"] >= FS
+         and r["SH_p"]**2 >= FS and r["SH_g"]**2 >= FS
+         and N_p >= g["N_p_min"])
 
-# Número mínimo de dentes do pinhão para evitar interferência
-# (Eq. 13-11 dentes retos; Eq. 13-22 helicoidais), k = 1 (profundidade completa)
-k = 1
-sin2 = math.sin(math.radians(phi_t)) ** 2
-fator_helice = math.cos(math.radians(psi)) if helicoidal else 1.0
-N_p_min = 2 * k * fator_helice * (m_g + math.sqrt(m_g**2 + (1 + 2 * m_g) * sin2)) / ((1 + 2 * m_g) * sin2)
-
-print("\n--- Geometria ---")
-print(f"Redução de velocidade: {reducao:.3f}")
-print(f"Ângulo de pressão transversal: {phi_t:.3f} graus")
-print(f"Módulo transversal: {m_t:.3f} mm")
-print(f"Diâmetro primitivo do pinhão: {d_p:.2f} mm")
-print(f"Diâmetro primitivo da engrenagem: {d_g:.2f} mm")
+# ------------------------------ RESUMO NO TERMINAL --------------------------
+print("\n" + "=" * 70)
+print(f" RESULTADOS - DENTES {'HELICOIDAIS' if helicoidal else 'RETOS'} | "
+      f"N_p = {N_p} | b = {b:.1f} mm | {nome_mat}")
+print("=" * 70)
+print(f"Redução: {reducao:.3f} | N_g = {g['N_g']} | d_p = {g['d_p']:.2f} mm | d_g = {g['d_g']:.2f} mm")
 if helicoidal:
-    print(f"Passo axial: {p_x:.2f} mm")
-print(f"Número mínimo de dentes do pinhão (interferência): {math.ceil(N_p_min)}")
-if N_p < N_p_min:
-    print(f"AVISO: N_p = {N_p} está ABAIXO do mínimo de {math.ceil(N_p_min)} dentes -> risco de interferência!")
+    print(f"Ângulo de pressão transversal: {g['phi_t']:.2f} graus | Passo axial: {g['p_x']:.2f} mm")
+print(f"N mínimo de dentes (interferência): {math.ceil(g['N_p_min'])}"
+      + ("  <-- VIOLADO!" if N_p < g["N_p_min"] else ""))
+print(f"V = {g['V']:.3f} m/s (máx. p/ Qv={Q_v}: {g['V_max']:.1f} m/s) | Wt = {g['W_t']:.1f} N")
+print(f"St = {S_t:.1f} MPa | Sc = {Sc:.1f} MPa")
+print("-" * 70)
+print(f"Tensão de flexão: pinhão {r['Tflex_p']:.1f} MPa | coroa {r['Tflex_g']:.1f} MPa")
+print(f"Tensão de contato: pinhão {r['Tcont_p']:.1f} MPa | coroa {r['Tcont_g']:.1f} MPa")
+print(f"SF (flexão): pinhão {r['SF_p']:.2f} | coroa {r['SF_g']:.2f}")
+print(f"SH (contato): pinhão {r['SH_p']:.2f} (SH²={r['SH_p']**2:.2f}) | "
+      f"coroa {r['SH_g']:.2f} (SH²={r['SH_g']**2:.2f})")
+print("-" * 70)
+print(f" VEREDITO: {'PASSA (SF e SH² >= FS = %.1f)' % FS if passa else 'NÃO PASSA (algum fator < FS = %.1f)' % FS}")
+print("=" * 70)
 
 # =============================================================================
-# CARREGAMENTO E FATOR DINÂMICO
+# FIGURA 1 - TABELA DOS FATORES + ONDE ENCONTRAR NO SHIGLEY
 # =============================================================================
-V = math.pi * d_p * n_motor / 60000            # velocidade da linha primitiva (m/s)
-W_t = 1000 * H_motor / V                       # carregamento tangencial (N)
+linhas = [
+    ("Ko",   f"{K_o:.2f}",           "Fator de sobrecarga",              "Seção 14-8"),
+    ("Kv",   f"{g['K_v']:.4f}",      "Fator dinâmico",                   "Seção 14-7, Eqs. 14-27/28, Fig. 14-9"),
+    ("Ks,p", f"{r['Ks_p']:.4f}",     "Fator de tamanho (pinhão)",        "Seção 14-10 (Y: Tabela 14-2)"),
+    ("Ks,g", f"{r['Ks_g']:.4f}",     "Fator de tamanho (coroa)",         "Seção 14-10 (Y: Tabela 14-2)"),
+    ("Kh",   f"{r['K_h']:.4f}",      "Distribuição de carga",            "Seção 14-11, Eqs. 14-30 a 14-35"),
+    ("Kb",   f"{K_b:.2f}",           "Espessura de borda",               "Seção 14-16, Fig. 14-16"),
+    ("Kt",   f"{K_t:.2f}",           "Temperatura",                      "Seção 14-15"),
+    ("Kr",   f"{K_r:.4f}",           "Confiabilidade",                   "Seção 14-14, Eq. 14-38, Tab. 14-10"),
+    ("Cf",   f"{C_f:.2f}",           "Condição de superfície",           "Seção 14-9"),
+    ("Ch",   f"{C_h:.2f}",           "Razão de dureza",                  "Seção 14-12, Eq. 14-36"),
+    ("Cp",   f"{C_p:.0f}",           "Coef. elástico (raiz de MPa)",     "Eq. 14-13, Tabela 14-8"),
+    ("Yn,p", f"{Yn_p:.4f}",          "Ciclagem de flexão (pinhão)",      "Seção 14-13, Fig. 14-14"),
+    ("Yn,g", f"{Yn_g:.4f}",          "Ciclagem de flexão (coroa)",       "Seção 14-13, Fig. 14-14"),
+    ("Zn,p", f"{Zn_p:.4f}",          "Ciclagem de contato (pinhão)",     "Seção 14-13, Fig. 14-15"),
+    ("Zn,g", f"{Zn_g:.4f}",          "Ciclagem de contato (coroa)",      "Seção 14-13, Fig. 14-15"),
+    ("J,p",  f"{Yj_p:.3f}",          "Geométrico de flexão (pinhão)",    "Seção 14-5, " + ("Figs. 14-7/14-8" if helicoidal else "Fig. 14-6")),
+    ("J,g",  f"{Yj_g:.3f}",          "Geométrico de flexão (coroa)",     "Seção 14-5, " + ("Figs. 14-7/14-8" if helicoidal else "Fig. 14-6")),
+    ("I",    f"{g['Z_I']:.4f}",      "Geométrico de contato",            "Seção 14-5, Eqs. 14-21 a 14-25"),
+    ("St",   f"{S_t:.1f} MPa",       "Flexão admissível",                "Fig. 14-2, Tabs. 14-3/14-4"),
+    ("Sc",   f"{Sc:.1f} MPa",        "Contato admissível",               "Fig. 14-5, Tabela 14-6"),
+    ("SF",   f"{r['SF_p']:.2f} / {r['SF_g']:.2f}", "Segurança de flexão (pinhão/coroa)",  "Seção 14-17, Eq. 14-41"),
+    ("SH",   f"{r['SH_p']:.2f} / {r['SH_g']:.2f}", "Segurança de contato (pinhão/coroa)", "Seção 14-17, Eq. 14-42"),
+]
 
-B = 0.25 * (12 - Q_v) ** (2 / 3)               # Eq. 14-28
-A = 50 + 56 * (1 - B)
-K_v = ((A + math.sqrt(200 * V)) / A) ** B      # Eq. 14-27 (SI)
-V_max = (A + (Q_v - 3)) ** 2 / 200             # Eq. 14-29: velocidade máxima p/ este Qv
-
-print("\n--- Carregamento ---")
-print(f"Velocidade da linha primitiva: {V:.3f} m/s (máxima para Qv={Q_v}: {V_max:.2f} m/s)")
-if V > V_max:
-    print(f"AVISO: V > V_max! Aumente o número de qualidade Qv.")
-print(f"Carregamento tangencial Wt: {W_t:.2f} N")
-print(f"Fator dinâmico Kv: {K_v:.4f}")
-
-# =============================================================================
-# FATORES AGMA QUE NÃO DEPENDEM DA LARGURA DE FACE
-# =============================================================================
-K_b = 1     # Fator de borda (Fig. 14-16), mB >= 1,2
-K_t = 1     # Fator de temperatura (Seção 14-15), T_oleo < 120 C
-C_f = 1     # Fator de condição de superfície (Seção 14-2)
-C_h = 1     # Fator de razão de dureza (Seção 14-12)
-
-Y_p = lewis_Y(N_p)                              # Tabela 14-2
-Y_g = lewis_Y(N_g)
-print("\n--- Fatores ---")
-print(f"Fator de Lewis: Y_p = {Y_p:.3f} | Y_g = {Y_g:.3f} (Tabela 14-2)")
-
-# Fatores geométricos de flexão J (gráficos: Fig. 14-6 p/ retos;
-# Figs. 14-7/14-8 p/ helicoidais) -> entrar com o valor lido
-Yj_p = pede_float("Fator geométrico de flexão J do pinhão (Fig. 14-6 ou 14-7/14-8)",
-                  0.41 if helicoidal else 0.33)
-Yj_g = pede_float("Fator geométrico de flexão J da engrenagem", 0.444 if helicoidal else 0.42)
-
-K_r = 0.658 - 0.0759 * math.log(1 - R)          # Eq. 14-38 (0,5 < R < 0,99)
-print(f"Fator de confiabilidade Kr: {K_r:.4f}")
-
-# Fatores de ciclagem (Figs. 14-14 e 14-15) - curvas usuais p/ N > 10^7
-curva = pede_int("Curva de ciclagem (1 = nominal, 2 = conservadora)", 1)
-if curva == 2:
-    Yn_p, Yn_g = 1.6831 * ciclos_p**-0.0323, 1.6831 * ciclos_g**-0.0323
-    Zn_p, Zn_g = 2.466 * ciclos_p**-0.056, 2.466 * ciclos_g**-0.056
-else:
-    Yn_p, Yn_g = 1.3558 * ciclos_p**-0.0178, 1.3558 * ciclos_g**-0.0178
-    Zn_p, Zn_g = 1.4488 * ciclos_p**-0.023, 1.4488 * ciclos_g**-0.023
-print(f"Fator de ciclagem de flexão: Yn_p = {Yn_p:.4f} | Yn_g = {Yn_g:.4f}")
-print(f"Fator de ciclagem de contato: Zn_p = {Zn_p:.4f} | Zn_g = {Zn_g:.4f}")
+fig1, ax1 = plt.subplots(figsize=(11, 0.30 * len(linhas) + 1.2))
+fig1.subplots_adjust(left=0.02, right=0.98, top=0.90, bottom=0.03)
+ax1.axis("off")
+ax1.set_title(f"Fatores AGMA - dentes {'helicoidais' if helicoidal else 'retos'} "
+              f"(N_p = {N_p}, b = {b:.1f} mm, {nome_mat})", fontsize=12, pad=14)
+tabela = ax1.table(cellText=[list(l) for l in linhas],
+                   colLabels=["Fator", "Valor", "O que é", "Onde está no Shigley"],
+                   colWidths=[0.09, 0.15, 0.35, 0.41],
+                   cellLoc="left", loc="center")
+tabela.auto_set_font_size(False)
+tabela.set_fontsize(9.5)
+tabela.scale(1, 1.35)
+for (lin, col), cel in tabela.get_celld().items():
+    cel.set_edgecolor("#CFD8DC")
+    if lin == 0:
+        cel.set_facecolor(COR_LINHA)
+        cel.set_text_props(color="white", weight="bold")
+    elif lin % 2 == 0:
+        cel.set_facecolor("#F5F5F5")
+fig1.tight_layout()
 
 # =============================================================================
-# FATOR GEOMÉTRICO DE CONTATO I (Eqs. 14-21 a 14-25)
+# FIGURA 2 - MAPA "NÚMERO DE DENTES x LARGURA DE FACE" (PASSA / NÃO PASSA)
 # =============================================================================
-if helicoidal:
-    rb_p = (d_p / 2) * math.cos(math.radians(phi_t))
-    rb_g = (d_g / 2) * math.cos(math.radians(phi_t))
-    a = m_n                                     # adendo (Tabela 13-4)
-    Z = (math.sqrt((d_p / 2 + a)**2 - rb_p**2) + math.sqrt((d_g / 2 + a)**2 - rb_g**2)
-         - (d_p / 2 + d_g / 2) * math.sin(math.radians(phi_t)))   # Eq. 14-25
-    P_N = math.pi * m_n * math.cos(math.radians(phi_n))           # Eq. 14-24
-    m_N = P_N / (0.95 * Z)                      # Eq. 14-21: razão de compartilhamento de carga
-else:
-    m_N = 1                                     # dentes retos
-Z_I = (math.cos(math.radians(phi_t)) * math.sin(math.radians(phi_t)) / (2 * m_N)) * m_g / (m_g + 1)  # Eq. 14-23
-print(f"Fator geométrico de contato I: {Z_I:.4f}")
+N_ini, N_fim = 12, 60
+Ns = list(range(N_ini, N_fim + 1))
+fronteira = [b_requerido(prepara(N))[2] for N in Ns]
 
-# =============================================================================
-# LARGURA DE FACE REQUERIDA (iterativa, pois Ks e Kh dependem de b)
-# =============================================================================
-def largura_requerida(b):
-    Ks_p = fator_tamanho(b, m_t, Y_p)
-    K_h = fator_distribuicao(b, d_p)
-    # Flexão: Eq. 14-15 com sigma = St*Yn/(FS*Kt*Kr), isolando b
-    b_flex = FS * W_t * K_o * K_v * Ks_p * (1 / m_t) * (K_h * K_b / Yj_p) * (K_t * K_r) / (S_t * Yn_p)
-    # Contato: Eq. 14-16 com sigma_c = Sc*Zn*Ch/(Kt*Kr) e SH^2 = FS, isolando b
-    b_desg = ((C_p * K_t * K_r / (Sc * Zn_p * C_h)) ** 2) * FS * W_t * K_o * K_v * Ks_p * (K_h / d_p) * (C_f / Z_I)
-    return b_flex, b_desg
+y_max = max(max(fronteira) * 1.15, b * 1.25, (b_max_rec or 0) * 1.15)
 
-b_iter = 30.0
-for _ in range(100):
-    b_flex, b_desg = largura_requerida(b_iter)
-    b_req = max(b_flex, b_desg)
-    if abs(b_req - b_iter) < 1e-4:
-        break
-    b_iter = b_req
+fig2, ax2 = plt.subplots(figsize=(10, 6))
+ax2.fill_between(Ns, fronteira, y_max, color=COR_PASSA, alpha=0.15)
+ax2.fill_between(Ns, 0, fronteira, color=COR_FALHA, alpha=0.15)
+ax2.plot(Ns, fronteira, color=COR_LINHA, lw=2.2,
+         label="b mínimo requerido (flexão e desgaste, SF = SH² = FS)")
+
+# Rótulos das regiões (não depender só da cor)
+N_meio = Ns[len(Ns) // 2]
+b_meio = fronteira[len(Ns) // 2]
+ax2.text(N_meio, (b_meio + y_max) / 2, "PASSA", color=COR_PASSA,
+         fontsize=15, weight="bold", ha="center")
+ax2.text(N_meio, b_meio / 2, "NÃO PASSA", color=COR_FALHA,
+         fontsize=15, weight="bold", ha="center")
 
 # Intervalo recomendado de largura de face
-if helicoidal:
-    b_min = 2 * p_x        # recomendação: no mínimo 2 passos axiais (Seção 13-11)
-    b_max = None
-    intervalo_txt = f"b >= {b_min:.2f} mm (2 passos axiais)"
-else:
-    b_min = 3 * math.pi * m_t
-    b_max = 5 * math.pi * m_t
-    intervalo_txt = f"{b_min:.2f} a {b_max:.2f} mm (3*pi*m a 5*pi*m)"
+ax2.axhline(b_min_rec, color=COR_LINHA, ls="--", lw=1.2, alpha=0.7,
+            label=("b mínimo recomendado (2 passos axiais)" if helicoidal
+                   else "Intervalo recomendado (3·pi·m a 5·pi·m)"))
+if b_max_rec is not None:
+    ax2.axhline(b_max_rec, color=COR_LINHA, ls="--", lw=1.2, alpha=0.7)
 
-print("\n" + "=" * 70)
-print(" LARGURA DE FACE")
-print("=" * 70)
-print(f"Requerida pela flexão: {b_flex:.2f} mm")
-print(f"Requerida pelo desgaste (contato): {b_desg:.2f} mm")
-print(f"Requerida (a maior das duas): {b_req:.2f} mm")
-print(f"Intervalo recomendado: {intervalo_txt}")
+# Limite de interferência (nº mínimo de dentes)
+N_min_interf = math.ceil(g["N_p_min"])
+if N_min_interf > N_ini:
+    ax2.axvline(N_min_interf, color=COR_FALHA, ls=":", lw=1.5, alpha=0.8,
+                label=f"N mínimo contra interferência ({N_min_interf} dentes)")
 
-b_sugerido = math.ceil(max(b_req, b_min))
-if b_max is not None and b_req > b_max:
-    print(f"AVISO: a largura requerida ({b_req:.2f} mm) excede o máximo recomendado "
-          f"({b_max:.2f} mm) -> aumente o módulo ou o número de dentes e recalcule.")
-print(f"Sugestão: b = {b_sugerido} mm")
+# Ponto do projeto do usuário
+cor_ponto = COR_PASSA if passa else COR_FALHA
+ax2.scatter([N_p], [b], s=130, color=cor_ponto, edgecolor="black", zorder=5,
+            label=f"Seu projeto (N={N_p}, b={b:.0f} mm) - {'PASSA' if passa else 'NÃO PASSA'}")
 
-b = pede_float("Largura de face adotada (mm)", float(b_sugerido))
-if b < b_req:
-    print(f"AVISO: b adotado é menor que o requerido ({b_req:.2f} mm) -> fatores de segurança abaixo do especificado.")
-if b_max is not None and not (b_min <= b <= b_max):
-    print(f"AVISO: b adotado está fora do intervalo recomendado ({intervalo_txt}).")
-elif b_max is None and b < b_min:
-    print(f"AVISO: b adotado está abaixo do mínimo recomendado ({b_min:.2f} mm).")
+ax2.set_xlim(N_ini, N_fim)
+ax2.set_ylim(0, y_max)
+ax2.set_xlabel("Número de dentes do pinhão")
+ax2.set_ylabel("Largura de face b (mm)")
+ax2.set_title(f"Mapa de projeto - dentes {'helicoidais' if helicoidal else 'retos'} "
+              f"(módulo {m_n} mm, {nome_mat}, FS = {FS:.1f})")
+ax2.grid(alpha=0.3)
+ax2.legend(loc="upper right", fontsize=9)
+fig2.text(0.01, 0.01,
+          "Obs.: fatores J fixados nos valores padrão; ao variar muito o nº de dentes, "
+          "confira J nas Figs. 14-6/14-7/14-8.",
+          fontsize=8, color="#607D8B")
+fig2.tight_layout()
 
-# =============================================================================
-# TENSÕES E FATORES DE SEGURANÇA COM O b ADOTADO
-# =============================================================================
-Ks_p = fator_tamanho(b, m_t, Y_p)
-Ks_g = fator_tamanho(b, m_t, Y_g)
-K_h = fator_distribuicao(b, d_p)
-
-# Tensão de flexão (Eq. 14-15)
-Tflex_p = W_t * K_o * K_v * Ks_p * (1 / (b * m_t)) * (K_h * K_b / Yj_p)
-Tflex_g = W_t * K_o * K_v * Ks_g * (1 / (b * m_t)) * (K_h * K_b / Yj_g)
-
-# Tensão de contato (Eq. 14-16)
-Tcont_p = C_p * math.sqrt(W_t * K_o * K_v * Ks_p * (K_h / (d_p * b)) * (C_f / Z_I))
-Tcont_g = C_p * math.sqrt(W_t * K_o * K_v * Ks_g * (K_h / (d_p * b)) * (C_f / Z_I))
-
-# Fatores de segurança AGMA (Eqs. 14-41 e 14-42)
-SF_p = (S_t * Yn_p) / (K_t * K_r * Tflex_p)
-SF_g = (S_t * Yn_g) / (K_t * K_r * Tflex_g)
-SH_p = (Sc * Zn_p * C_h) / (K_t * K_r * Tcont_p)
-SH_g = (Sc * Zn_g * C_h) / (K_t * K_r * Tcont_g)
-
-print("\n" + "=" * 70)
-print(f" RESULTADOS - DENTES {'HELICOIDAIS' if helicoidal else 'RETOS'} | b = {b:.1f} mm")
-print("=" * 70)
-print(f"Ks pinhão = {Ks_p:.4f} | Ks engrenagem = {Ks_g:.4f} | Kh = {K_h:.4f}")
-print("-" * 70)
-print(f"Tensão de flexão no pinhão: {Tflex_p:.2f} MPa")
-print(f"Tensão de flexão na coroa: {Tflex_g:.2f} MPa")
-print(f"Fator de segurança AGMA de flexão (SF) - pinhão: {SF_p:.2f}")
-print(f"Fator de segurança AGMA de flexão (SF) - coroa: {SF_g:.2f}")
-print("-" * 70)
-print(f"Tensão de contato no pinhão: {Tcont_p:.2f} MPa")
-print(f"Tensão de contato na coroa: {Tcont_g:.2f} MPa")
-print(f"Fator de segurança AGMA de contato (SH) - pinhão: {SH_p:.2f} (SH^2 = {SH_p**2:.2f})")
-print(f"Fator de segurança AGMA de contato (SH) - coroa: {SH_g:.2f} (SH^2 = {SH_g**2:.2f})")
-print("-" * 70)
-print("Obs.: para comparar flexão e contato na mesma base, compare SF com SH^2 (Seção 14-19).")
-print("=" * 70)
+plt.show()
